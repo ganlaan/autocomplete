@@ -66,3 +66,29 @@ function handleAIOutput(outputText: string): string {
 function handleUserInput(inputText: string): string {
     return autoCompleteAll(inputText); // 返回补全后的文本
 }
+
+// 导出扩展
+module.exports = {
+    name: 'Autocomplete Extension', // 扩展名称
+    description: 'Automatically completes unclosed tags and code blocks for both AI output and user input.', // 扩展描述
+    hooks: {
+        // 在 AI 输出文本后调用
+        aiOutput: (outputText: string): string => {
+            return handleAIOutput(outputText);
+        }
+    },
+    // 前端补全逻辑
+    init: (app: any): void => { // 使用 `any` 因为 `app` 的类型不清楚，具体可以根据你的应用结构调整类型
+        // 监听用户输入事件
+        const inputBox = document.getElementById('input-box') as HTMLInputElement | null; // 假设输入框的 ID 是 input-box
+        if (inputBox) {
+            inputBox.addEventListener('input', (event: Event) => {
+                const target = event.target as HTMLInputElement; // 明确 event.target 是 HTMLInputElement
+                if (target) {
+                    const completedText = handleUserInput(target.value);
+                    target.value = completedText; // 更新输入框内容
+                }
+            });
+        }
+    }
+};
