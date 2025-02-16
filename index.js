@@ -1,27 +1,24 @@
 // 自动补全标签的逻辑
 function autoCompleteTags(text: string): string {
-    const tagStack: { tag: string }[] = []; // 用于跟踪未闭合的标签
-    const tagRegex = /<(\/?)(\w+)[^>]*>/g; // 匹配标签的正则表达式
+    const tagStack: { tag: string }[] = [];
+    const tagRegex = /<(\/?)(\w+)[^>]*>/g;
     let match: RegExpExecArray | null;
 
     while ((match = tagRegex.exec(text)) !== null) {
         const [fullTag, isClosing, tagName] = match;
         if (isClosing) {
-            // 如果是闭合标签，检查是否与栈顶的标签匹配
             if (tagStack.length > 0 && tagStack[tagStack.length - 1].tag === tagName) {
-                tagStack.pop(); // 匹配成功，弹出栈顶标签
+                tagStack.pop();
             }
         } else {
-            // 如果是开始标签，压入栈中
             tagStack.push({ tag: tagName });
         }
     }
 
-    // 从后往前补全未闭合的标签
     let completedText = text;
     for (let i = tagStack.length - 1; i >= 0; i--) {
         const tag = tagStack[i].tag;
-        completedText += `</${tag}>`; // 补全闭合标签
+        completedText += `</${tag}>`;
     }
 
     return completedText;
@@ -29,20 +26,18 @@ function autoCompleteTags(text: string): string {
 
 // 自动补全代码块的逻辑
 function autoCompleteCodeBlocks(text: string): string {
-    const tripleQuoteRegex = /('''|```)/g; // 匹配 ''' 或 ```
+    const tripleQuoteRegex = /('''|```)/g;
     let match: RegExpExecArray | null;
     let openQuotes = 0;
 
-    // 统计未闭合的 ''' 或 ```
     while ((match = tripleQuoteRegex.exec(text)) !== null) {
         if (match[1] === "'''" || match[1] === '```') {
             openQuotes++;
         }
     }
 
-    // 如果未闭合的 ''' 或 ``` 是奇数，补全
     if (openQuotes % 2 !== 0) {
-        text += "\n'''"; // 补全 '''
+        text += "\n'''";
     }
 
     return text;
@@ -50,43 +45,110 @@ function autoCompleteCodeBlocks(text: string): string {
 
 // 主函数：处理文本补全
 function autoCompleteAll(text: string): string {
-    // 先补全标签
-    let completedText = autoCompleteTags(text);
-    // 再补全代码块
-    completedText = autoCompleteCodeBlocks(completedText);
+    if (!extension_settings.autocomplete.enabled) {
+        return text;
+    }
+
+    let completedText = text;
+
+    if (extension_settings.autocomplete.mode === 'auto') {
+        completedText = autoCompleteTags(completedText);
+        completedText = autoCompleteCodeBlocks(completedText);
+    }
+
     return completedText;
 }
 
-// 后端补全：在 AI 输出文本后调用
-function handleAIOutput(outputText: string): string {
-    return autoCompleteAll(outputText); // 返回补全后的文本
+// 加载设置
+function loadSettings() {
+    extension_settings.autocomplete = extension_settings.autocomplete || {
+        mode: 'auto',
+        enabled: true
+    };
+
+    const modeSelect = document.getElementById('autocomplete-mode') as HTMLSelectElement;
+    const toggleCheckbox = document.getElementById('autocomplete-toggle') as HTMLInputElement;
+
+    if (modeSelect) {
+        modeSelect.value = extension_settings.autocomplete.mode;
+    }
+    if (toggleCheckbox) {
+        toggleCheckbox.checked = extension_settings.autocomplete.enabled;
+    }
+
+    updateSwitch();
 }
 
-// 前端补全：在用户输入时实时调用
-function handleUserInput(inputText: string): string {
-    return autoCompleteAll(inputText); // 返回补全后的文本
+// 保存设置
+function saveSettings() {
+    if (typeof saveSettingsToServer === 'function') {
+        saveSettingsToServer(extension_settings);
+    }
+}
+
+// 更新开关状态
+function updateSwitch() {
+    const toggleCheckbox = document.getElementById('autocomplete-toggle') as HTMLInputElement;
+    if (toggleCheckbox) {
+        if (extension_settings.autocomplete.enabled) {
+            toggleCheckbox.checked = true;
+            console.log('补全功能已启用');
+        } else {
+            toggleCheckbox.checked = false;
+            console.log('补全功能已禁用');
+        }
+    }
 }
 
 // 导出扩展
 module.exports = {
-    name: 'Autocomplete Extension', // 扩展名称
-    description: 'Automatically completes unclosed tags and code blocks for both AI output and user input.', // 扩展描述
+    name: 'Autocomplete Extension',
+    description: 'Automatically completes unclosed tags and code blocks for both AI output and user input.',
     hooks: {
-        // 在 AI 输出文本后调用
         aiOutput: (outputText: string): string => {
-            return handleAIOutput(outputText);
+            return autoCompleteAll(outputText);
         }
     },
-    // 前端补全逻辑
-    init: (app: any): void => { // 使用 `any` 因为 `app` 的类型不清楚，具体可以根据你的应用结构调整类型
-        // 监听用户输入事件
-        const inputBox = document.getElementById('input-box') as HTMLInputElement | null; // 假设输入框的 ID 是 input-box
+    init: (app: any): void => {
+        const uiContainer = document.createElement('div');
+        uiContainer.id = 'autocomplete-extension-ui';
+        uiContainer.innerHTML = `
+            <label for="autocomplete-mode">补全模式：</label>
+            <select id="autocomplete-mode">
+                <option value="auto">自动</option>
+                <option value="manual">手动</option>
+            </select>
+
+            <label for="autocomplete-toggle">启用补全：</label>
+            <input type="checkbox" id="autocomplete-toggle">
+        `;
+        document.body.appendChild(uiContainer);
+
+        const modeSelect = document.getElementById('autocomplete-mode') as HTMLSelectElement;
+        const toggleCheckbox = document.getElementById('autocomplete-toggle') as HTMLInputElement;
+
+        loadSettings();
+
+        modeSelect.addEventListener('change', (event: Event) => {
+            const selectedMode = (event.target as HTMLSelectElement).value;
+            extension_settings.autocomplete.mode = selectedMode;
+            saveSettings();
+        });
+
+        toggleCheckbox.addEventListener('change', (event: Event) => {
+            const isEnabled = (event.target as HTMLInputElement).checked;
+            extension_settings.autocomplete.enabled = isEnabled;
+            saveSettings();
+            updateSwitch();
+        });
+
+        const inputBox = document.getElementById('input-box') as HTMLInputElement | null;
         if (inputBox) {
             inputBox.addEventListener('input', (event: Event) => {
-                const target = event.target as HTMLInputElement; // 明确 event.target 是 HTMLInputElement
-                if (target) {
+                const target = event.target as HTMLInputElement;
+                if (target && extension_settings.autocomplete.enabled) {
                     const completedText = handleUserInput(target.value);
-                    target.value = completedText; // 更新输入框内容
+                    target.value = completedText;
                 }
             });
         }
